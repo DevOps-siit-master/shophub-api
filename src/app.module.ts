@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validationSchema } from './config/env.validation';
+import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { KubernetesModule } from './kubernetes/kubernetes.module';
+import { ShopsModule } from './shops/shops.module';
 
 @Module({
   imports: [
@@ -9,7 +12,10 @@ import { HealthModule } from './health/health.module';
       isGlobal: true,
       validationSchema,
     }),
+    AuthModule,
     HealthModule,
+    KubernetesModule,
+    ShopsModule,
   ],
 })
 export class AppModule {}
