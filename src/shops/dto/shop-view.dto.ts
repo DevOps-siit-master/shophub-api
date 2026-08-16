@@ -23,12 +23,6 @@ export class ShopView {
   })
   walletAddress: string;
 
-  @ApiProperty({ description: 'Referenced Wallet CR name' })
-  walletRef: string;
-
-  @ApiProperty({ description: 'Referenced DiscordChannel CR name' })
-  discordChannelRef: string;
-
   @ApiProperty({
     description: 'Whether the operator reports the shop as ready',
   })

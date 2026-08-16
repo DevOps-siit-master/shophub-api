@@ -10,34 +10,26 @@ import { UpdateShopDto } from './dto/update-shop.dto';
 import {
   ANNOTATION_DISPLAY_NAME,
   ANNOTATION_OWNER_ID,
-  ANNOTATION_WALLET_ADDRESS,
   Availability,
   CRD_GROUP,
   CRD_VERSION,
   DatabaseType,
   LABEL_MANAGED_BY,
   LABEL_OWNER,
-  LABEL_SHOP,
   MANAGED_BY,
   ownerHash,
-  PLURAL_DISCORD,
   PLURAL_SHOPS,
-  PLURAL_WALLETS,
-  discordName,
   replicasFor,
   shopName,
-  walletName,
 } from './shop.constants';
 
 /**
- * Orchestrates the lifecycle of a shop as three linked custom resources:
- *
- *   Shop ──walletRef──▶ Wallet
- *        └─discordChannelRef─▶ DiscordChannel
- *
- * The Wallet and DiscordChannel CRs are created first (the Shop spec requires
- * their names), then the Shop. All three carry an owner label so a user only
- * ever sees and mutates their own shops.
+ * Manages shop sites as a single Shop custom resource. The shop-operator's
+ * ShopReconciler owns creating the Wallet and DiscordChannel children (via owner
+ * references) from the Shop's inline config, so this service only ever creates,
+ * reads, updates and deletes the Shop itself — Kubernetes cascade-deletes the
+ * children with it. Every Shop carries an owner label so a user only ever sees
+ * and mutates their own shops.
  */
 @Injectable()
 export class ShopsService {
@@ -56,70 +48,38 @@ export class ShopsService {
 
   async create(userId: string, dto: CreateShopDto): Promise<ShopView> {
     const name = shopName(dto.name, userId);
-    const wallet = walletName(name);
-    const discord = discordName(name);
-    const owner = ownerHash(userId);
     const labels = {
-      [LABEL_OWNER]: owner,
+      [LABEL_OWNER]: ownerHash(userId),
       [LABEL_MANAGED_BY]: MANAGED_BY,
-      [LABEL_SHOP]: name,
     };
 
-    // Order matters: the Shop spec references the Wallet/DiscordChannel by name,
-    // so those must exist first. If any step fails we roll back what we made.
-    const created: Array<{ plural: string; name: string }> = [];
-    try {
-      await this.k8s.create(CRD_GROUP, CRD_VERSION, PLURAL_WALLETS, {
-        apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,
-        kind: 'Wallet',
-        metadata: {
-          name: wallet,
-          labels,
-          // WalletSpec has no address field yet (see README limitation); keep
-          // the admin-supplied address as an annotation so it is not lost.
-          annotations: { [ANNOTATION_WALLET_ADDRESS]: dto.walletAddress },
+    // A single Shop create. The operator materialises the owned Wallet and
+    // DiscordChannel from the inline config below, so there is nothing to roll
+    // back if this call fails: either the Shop exists or nothing does.
+    const shop = await this.k8s.create(CRD_GROUP, CRD_VERSION, PLURAL_SHOPS, {
+      apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,
+      kind: 'Shop',
+      metadata: {
+        name,
+        labels,
+        annotations: {
+          [ANNOTATION_OWNER_ID]: userId,
+          [ANNOTATION_DISPLAY_NAME]: dto.name,
         },
-        spec: { shopRef: name },
-      });
-      created.push({ plural: PLURAL_WALLETS, name: wallet });
-
-      await this.k8s.create(CRD_GROUP, CRD_VERSION, PLURAL_DISCORD, {
-        apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,
-        kind: 'DiscordChannel',
-        metadata: { name: discord, labels },
-        spec: {
+      },
+      spec: {
+        displayName: dto.name,
+        availability: dto.availability,
+        databaseType: dto.databaseType,
+        wallet: { address: dto.walletAddress },
+        discordChannel: {
           channelName: dto.discordChannelName,
           serverID: dto.discordServerId,
         },
-      });
-      created.push({ plural: PLURAL_DISCORD, name: discord });
+      },
+    });
 
-      const shop = await this.k8s.create(CRD_GROUP, CRD_VERSION, PLURAL_SHOPS, {
-        apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,
-        kind: 'Shop',
-        metadata: {
-          name,
-          labels,
-          annotations: {
-            [ANNOTATION_OWNER_ID]: userId,
-            [ANNOTATION_DISPLAY_NAME]: dto.name,
-            [ANNOTATION_WALLET_ADDRESS]: dto.walletAddress,
-          },
-        },
-        spec: {
-          displayName: dto.name,
-          availability: dto.availability,
-          databaseType: dto.databaseType,
-          walletRef: wallet,
-          discordChannelRef: discord,
-        },
-      });
-
-      return this.toView(shop);
-    } catch (err) {
-      await this.rollback(created);
-      throw err;
-    }
+    return this.toView(shop);
   }
 
   async list(userId: string): Promise<ShopView[]> {
@@ -154,9 +114,11 @@ export class ShopsService {
       shop.metadata.annotations[ANNOTATION_DISPLAY_NAME] = dto.name;
     }
     if (dto.walletAddress !== undefined) {
-      shop.metadata.annotations[ANNOTATION_WALLET_ADDRESS] = dto.walletAddress;
-      // Mirror onto the Wallet CR annotation so both stay consistent.
-      await this.updateWalletAddress(name, dto.walletAddress);
+      // The operator propagates this onto the owned Wallet on the next reconcile.
+      shop.spec.wallet = {
+        ...(shop.spec.wallet ?? {}),
+        address: dto.walletAddress,
+      };
     }
 
     const updated = await this.k8s.replace(
@@ -172,19 +134,9 @@ export class ShopsService {
   async remove(userId: string, name: string): Promise<void> {
     // Ownership check first so we never delete another user's resources.
     await this.getOwned(userId, name);
+    // Deleting the Shop cascade-deletes the operator-owned Wallet and
+    // DiscordChannel via their owner references.
     await this.k8s.deleteIfExists(CRD_GROUP, CRD_VERSION, PLURAL_SHOPS, name);
-    await this.k8s.deleteIfExists(
-      CRD_GROUP,
-      CRD_VERSION,
-      PLURAL_WALLETS,
-      walletName(name),
-    );
-    await this.k8s.deleteIfExists(
-      CRD_GROUP,
-      CRD_VERSION,
-      PLURAL_DISCORD,
-      discordName(name),
-    );
   }
 
   /** Fetches a shop and asserts the caller owns it (404s are surfaced by k8s). */
@@ -199,41 +151,12 @@ export class ShopsService {
     return shop;
   }
 
-  private async updateWalletAddress(
-    shop: string,
-    address: string,
-  ): Promise<void> {
-    const wallet = await this.k8s.get(
-      CRD_GROUP,
-      CRD_VERSION,
-      PLURAL_WALLETS,
-      walletName(shop),
-    );
-    wallet.metadata = wallet.metadata ?? {};
-    wallet.metadata.annotations = wallet.metadata.annotations ?? {};
-    wallet.metadata.annotations[ANNOTATION_WALLET_ADDRESS] = address;
-    await this.k8s.replace(
-      CRD_GROUP,
-      CRD_VERSION,
-      PLURAL_WALLETS,
-      walletName(shop),
-      wallet,
-    );
-  }
-
-  private async rollback(
-    created: Array<{ plural: string; name: string }>,
-  ): Promise<void> {
-    for (const { plural, name } of created.reverse()) {
-      await this.k8s.deleteIfExists(CRD_GROUP, CRD_VERSION, plural, name);
-    }
-  }
-
   private toView(shop: CustomResource): ShopView {
     const spec = shop.spec ?? {};
     const status = shop.status ?? {};
     const annotations = shop.metadata?.annotations ?? {};
     const name = shop.metadata?.name ?? '';
+    const wallet = (spec.wallet as { address?: string } | undefined) ?? {};
 
     return {
       name,
@@ -243,9 +166,7 @@ export class ShopsService {
         name,
       availability: (spec.availability as Availability) ?? 'standard',
       databaseType: (spec.databaseType as DatabaseType) ?? 'standard',
-      walletAddress: annotations[ANNOTATION_WALLET_ADDRESS] ?? '',
-      walletRef: (spec.walletRef as string) ?? '',
-      discordChannelRef: (spec.discordChannelRef as string) ?? '',
+      walletAddress: wallet.address ?? '',
       ready: (status.ready as boolean) ?? false,
       replicas:
         (status.replicas as number) ??

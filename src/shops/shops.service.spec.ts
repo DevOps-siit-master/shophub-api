@@ -6,14 +6,7 @@ import {
   KubernetesService,
 } from '../kubernetes/kubernetes.service';
 import { CreateShopDto } from './dto/create-shop.dto';
-import {
-  ANNOTATION_WALLET_ADDRESS,
-  LABEL_OWNER,
-  ownerHash,
-  PLURAL_DISCORD,
-  PLURAL_SHOPS,
-  PLURAL_WALLETS,
-} from './shop.constants';
+import { LABEL_OWNER, ownerHash, PLURAL_SHOPS } from './shop.constants';
 import { ShopsService } from './shops.service';
 
 const USER = 'user-123';
@@ -64,33 +57,22 @@ describe('ShopsService', () => {
     service = module.get<ShopsService>(ShopsService);
   });
 
-  it('creates Wallet, DiscordChannel and Shop CRs in order', async () => {
+  it('creates a single Shop CR with inline wallet and discord config', async () => {
     const view = await service.create(USER, createDto);
 
+    // Only the Shop is created; the operator owns the Wallet/DiscordChannel.
     const plurals = k8s.create.mock.calls.map((c) => c[2]);
-    expect(plurals).toEqual([PLURAL_WALLETS, PLURAL_DISCORD, PLURAL_SHOPS]);
+    expect(plurals).toEqual([PLURAL_SHOPS]);
 
-    // Shop references the wallet/discord it just created.
-    const shopBody = k8s.create.mock.calls[2][3];
-    expect(shopBody.spec?.walletRef).toBe(view.walletRef);
-    expect(shopBody.spec?.discordChannelRef).toBe(view.discordChannelRef);
+    const shopBody = k8s.create.mock.calls[0][3];
+    expect(shopBody.spec?.wallet).toEqual({ address: '0xabc' });
+    expect(shopBody.spec?.discordChannel).toEqual({
+      channelName: 'orders',
+      serverID: '999',
+    });
+    expect(view.walletAddress).toBe('0xabc');
     expect(view.replicas).toBe(3); // high → 3
     expect(view.url).toBe(`http://${view.name}.test`);
-  });
-
-  it('rolls back created resources when Shop creation fails', async () => {
-    k8s.create
-      .mockImplementationOnce((_g, _v, _p, body: CustomResource) =>
-        Promise.resolve(body),
-      )
-      .mockImplementationOnce((_g, _v, _p, body: CustomResource) =>
-        Promise.resolve(body),
-      )
-      .mockRejectedValueOnce(new Error('shop boom'));
-
-    await expect(service.create(USER, createDto)).rejects.toThrow('shop boom');
-    // Wallet + DiscordChannel cleaned up.
-    expect(k8s.deleteIfExists).toHaveBeenCalledTimes(2);
   });
 
   it('lists only the caller shops via owner label selector', async () => {
@@ -113,14 +95,17 @@ describe('ShopsService', () => {
     );
   });
 
-  it('surfaces the admin wallet address from annotations', async () => {
+  it('surfaces the admin wallet address from spec.wallet.address', async () => {
     k8s.get.mockResolvedValue({
       metadata: {
         name: 'x',
         labels: { [LABEL_OWNER]: ownerHash(USER) },
-        annotations: { [ANNOTATION_WALLET_ADDRESS]: '0xdeadbeef' },
       },
-      spec: { availability: 'standard', databaseType: 'light' },
+      spec: {
+        availability: 'standard',
+        databaseType: 'light',
+        wallet: { address: '0xdeadbeef' },
+      },
     });
     const view = await service.get(USER, 'x');
     expect(view.walletAddress).toBe('0xdeadbeef');

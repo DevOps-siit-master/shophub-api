@@ -130,7 +130,7 @@ describe('Shops (e2e)', () => {
     discordServerId: '999',
   };
 
-  it('creates a shop and its Wallet + DiscordChannel CRs', async () => {
+  it('creates a single Shop CR (operator owns the child resources)', async () => {
     const res = await request(app.getHttpServer())
       .post('/shops')
       .send(validShop)
@@ -139,15 +139,18 @@ describe('Shops (e2e)', () => {
 
     expect(shop.displayName).toBe('Healthy Food');
     expect(shop.replicas).toBe(3);
-    expect(shop.walletRef).toBe(`${shop.name}-wallet`);
+    expect(shop.walletAddress).toBe('0xabc123');
 
-    // All three custom resources exist in the fake cluster.
+    // Only the Shop is created here; the shop-operator materialises the owned
+    // Wallet/DiscordChannel in-cluster, which this in-memory fake does not run.
     const shops = await cluster.list('', '', 'shops');
-    const wallets = await cluster.list('', '', 'wallets');
-    const discord = await cluster.list('', '', 'discordchannels');
     expect(shops).toHaveLength(1);
-    expect(wallets).toHaveLength(1);
-    expect(discord).toHaveLength(1);
+    const shopCr = shops[0];
+    expect(shopCr.spec?.wallet).toEqual({ address: '0xabc123' });
+    expect(shopCr.spec?.discordChannel).toEqual({
+      channelName: 'orders',
+      serverID: '999',
+    });
   });
 
   it('rejects an invalid availability value', () => {
