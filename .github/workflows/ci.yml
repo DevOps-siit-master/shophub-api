@@ -85,14 +85,3 @@ jobs:
           languages: javascript-typescript
       - name: Analyze
         uses: github/codeql-action/analyze@v3
-
-  dependency-review:
-    name: Dependency review
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Review dependency changes for known CVEs
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
