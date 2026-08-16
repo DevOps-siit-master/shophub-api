@@ -14,4 +14,6 @@ COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 EXPOSE 3001
+# Run as the non-root user shipped in the node image (DS-0002).
+USER node
 CMD ["node", "dist/main.js"]
