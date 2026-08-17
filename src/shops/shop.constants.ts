@@ -4,22 +4,17 @@ import { createHash } from 'node:crypto';
 export const CRD_GROUP = 'shophub.devops-siit.io';
 export const CRD_VERSION = 'v1';
 
-/** Plural names as registered by the shop-operator CRDs. */
+/** Plural name as registered by the shop-operator Shop CRD. */
 export const PLURAL_SHOPS = 'shops';
-export const PLURAL_WALLETS = 'wallets';
-export const PLURAL_DISCORD = 'discordchannels';
 
 /** Labels used to scope and identify resources managed by this service. */
 export const LABEL_OWNER = 'shophub.devops-siit.io/owner';
-export const LABEL_SHOP = 'shophub.devops-siit.io/shop';
 export const LABEL_MANAGED_BY = 'app.kubernetes.io/managed-by';
 export const MANAGED_BY = 'shophub-api';
 
-/** Annotations for data that has no home in the (teammates') CRD specs yet. */
+/** Annotations for bookkeeping the Shop spec has no field for. */
 export const ANNOTATION_OWNER_ID = 'shophub.devops-siit.io/owner-id';
 export const ANNOTATION_DISPLAY_NAME = 'shophub.devops-siit.io/display-name';
-export const ANNOTATION_WALLET_ADDRESS =
-  'shophub.devops-siit.io/wallet-address';
 
 export type Availability = 'standard' | 'high';
 export type DatabaseType = 'standard' | 'light';
@@ -59,12 +54,4 @@ export function slugify(displayName: string): string {
 /** Builds the unique Shop CR name for a given owner + display name. */
 export function shopName(displayName: string, userId: string): string {
   return `${slugify(displayName)}-${ownerHash(userId)}`;
-}
-
-export function walletName(shop: string): string {
-  return `${shop}-wallet`;
-}
-
-export function discordName(shop: string): string {
-  return `${shop}-discord`;
 }
