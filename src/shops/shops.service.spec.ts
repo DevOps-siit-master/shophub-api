@@ -303,6 +303,16 @@ describe('ShopsService', () => {
       expect(view.url).toBe('http://bare-shop.test');
     });
 
+    it('defaults the name to an empty string when metadata.name is absent', async () => {
+      k8s.get.mockResolvedValue({
+        metadata: { labels: { [LABEL_OWNER]: ownerHash(USER) } },
+      });
+      const view = await service.get(USER, 'whatever');
+      expect(view.name).toBe('');
+      expect(view.displayName).toBe(''); // falls through the name fallback too
+      expect(view.url).toBe('http://.test');
+    });
+
     it('uses the display-name annotation when spec.displayName is absent', async () => {
       k8s.get.mockResolvedValue({
         metadata: {
