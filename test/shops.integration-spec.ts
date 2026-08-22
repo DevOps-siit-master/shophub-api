@@ -14,10 +14,9 @@ import {
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-// AppModule's ConfigModule validates env on boot, so secrets must be set before
-// it (and the KubernetesService) are wired up.
-process.env.JWT_ACCESS_SECRET = 'integration-secret';
-
+// AppModule's ConfigModule validates env on import. JWT_ACCESS_SECRET is set in
+// test/integration-setup.ts (jest `setupFiles`), which runs before this module's
+// hoisted imports — an assignment here would run too late under ESM.
 import { AppModule } from './../src/app.module';
 import { JwtAuthGuard } from './../src/auth/jwt-auth.guard';
 import { ShopView } from './../src/shops/dto/shop-view.dto';
