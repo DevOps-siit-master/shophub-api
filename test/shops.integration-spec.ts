@@ -162,11 +162,22 @@ describe('Shops (integration, real k3s)', () => {
       .expect(400);
   });
 
-  it('lists, updates and deletes the shop end to end', async () => {
+  it('lists, updates and deletes a shop end to end', async () => {
+    // Create the shop this test owns so it does not depend on CRs left behind
+    // by earlier tests (and does not assume it is the only shop in the cluster).
+    const created = await request(app.getHttpServer())
+      .post('/shops')
+      .send({
+        ...validShop,
+        name: 'Lifecycle Shop',
+        discordChannelName: 'lifecycle',
+      })
+      .expect(201);
+    const name = (created.body as ShopView).name;
+
+    // It shows up in the listing.
     const list = await request(app.getHttpServer()).get('/shops').expect(200);
-    const shops = list.body as ShopView[];
-    expect(shops).toHaveLength(1);
-    const name = shops[0].name;
+    expect((list.body as ShopView[]).map((s) => s.name)).toContain(name);
 
     await request(app.getHttpServer())
       .patch(`/shops/${name}`)
@@ -190,9 +201,12 @@ describe('Shops (integration, real k3s)', () => {
 
     await request(app.getHttpServer()).delete(`/shops/${name}`).expect(204);
 
+    // It is gone from the listing.
     await request(app.getHttpServer())
       .get('/shops')
       .expect(200)
-      .expect((r) => expect(r.body as ShopView[]).toHaveLength(0));
+      .expect((r) =>
+        expect((r.body as ShopView[]).map((s) => s.name)).not.toContain(name),
+      );
   });
 });
