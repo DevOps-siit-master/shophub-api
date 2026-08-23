@@ -6,11 +6,17 @@ import { Counter, Histogram } from 'prom-client';
  *  middleware does not depend on @types/express being present. */
 interface MetricsRequest {
   method: string;
-  path?: string;
-  originalUrl?: string;
   baseUrl?: string;
   route?: { path?: string };
+  // The raw request path exists on every request but is deliberately NOT used
+  // as a metric label — see routeOf() for why (cardinality).
+  path?: string;
 }
+
+/** Bounded label used for any request that never matched a route (404s, and
+ *  guard rejections with no matched route), so a flood of distinct URLs cannot
+ *  create unbounded series. */
+const UNMATCHED_ROUTE = 'unmatched';
 interface MetricsResponse {
   statusCode: number;
   once(event: 'finish', listener: () => void): void;
@@ -54,13 +60,17 @@ export class HttpMetricsMiddleware implements NestMiddleware {
 
   /**
    * Prefers the matched route pattern (e.g. /shops/:name) so path params do not
-   * explode cardinality. Unmatched requests (404) have no route, so the raw
-   * path is used — this is what surfaces offending 404 endpoints (spec 4.1).
+   * explode cardinality. Requests that never matched a route (404s, and guard
+   * rejections with no route) all collapse to a single constant — using the raw
+   * path here would let a flood of distinct 404 URLs create unbounded series on
+   * the counter and on every histogram bucket. The offending URLs are still
+   * visible in the access logs (Loki), which is the right place for high-
+   * cardinality detail (spec 4.1).
    */
   private routeOf(req: MetricsRequest): string {
     if (req.route?.path) {
       return `${req.baseUrl ?? ''}${req.route.path}`;
     }
-    return req.path ?? req.originalUrl ?? 'unknown';
+    return UNMATCHED_ROUTE;
   }
 }

@@ -47,40 +47,49 @@ describe('HttpMetricsMiddleware', () => {
     expect(stopTimer).toHaveBeenCalledWith(labels);
   });
 
-  it('counts guard-rejected requests (401) that never reach a handler', () => {
+  it('counts guard-rejected requests (401) under their matched route', () => {
     const { res, finish } = responder(401);
-    // A 401 short-circuited by a guard: no req.route was ever matched.
-    const req = { method: 'GET', path: '/shops' };
+    // A guard rejects the request, but the route was already matched by the
+    // router, so req.route is populated and the label stays bounded.
+    const req = { method: 'GET', baseUrl: '/shops', route: { path: '/:name' } };
 
     middleware.use(req, res, jest.fn());
     finish();
     expect(inc).toHaveBeenCalledWith({
       method: 'GET',
-      route: '/shops',
+      route: '/shops/:name',
       status_code: '401',
     });
   });
 
-  it('surfaces the offending endpoint for unmatched 404s', () => {
-    const { res, finish } = responder(404);
-    const req = { method: 'GET', path: '/does/not/exist' };
-
-    middleware.use(req, res, jest.fn());
-    finish();
-    expect(inc).toHaveBeenCalledWith({
+  it('collapses distinct unmatched 404 URLs to one bounded label', () => {
+    // The whole point of the fix: two different missing URLs must produce the
+    // same label, otherwise a flood of random 404s explodes cardinality.
+    for (const path of ['/does/not/exist', '/also/missing/1234']) {
+      const { res, finish } = responder(404);
+      middleware.use({ method: 'GET', path }, res, jest.fn());
+      finish();
+    }
+    expect(inc).toHaveBeenCalledTimes(2);
+    expect(inc).toHaveBeenNthCalledWith(1, {
       method: 'GET',
-      route: '/does/not/exist',
+      route: 'unmatched',
+      status_code: '404',
+    });
+    expect(inc).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      route: 'unmatched',
       status_code: '404',
     });
   });
 
-  it('falls back to "unknown" when neither route nor path is present', () => {
+  it('uses the bounded label when neither route nor path is present', () => {
     const { res, finish } = responder(500);
     middleware.use({ method: 'POST' }, res, jest.fn());
     finish();
     expect(inc).toHaveBeenCalledWith({
       method: 'POST',
-      route: 'unknown',
+      route: 'unmatched',
       status_code: '500',
     });
   });
