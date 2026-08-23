@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthUser } from '../auth/auth.types';
 import { CreateShopDto } from './dto/create-shop.dto';
+import { UpdateShopDto } from './dto/update-shop.dto';
 import { ShopsController } from './shops.controller';
 import { ShopsService } from './shops.service';
 
@@ -38,6 +39,17 @@ describe('ShopsController', () => {
   it('lists shops for the caller', async () => {
     await controller.list(user);
     expect(service.list).toHaveBeenCalledWith('user-1');
+  });
+
+  it('gets a single shop scoped to the caller', async () => {
+    await controller.get(user, 'shop-x');
+    expect(service.get).toHaveBeenCalledWith('user-1', 'shop-x');
+  });
+
+  it('delegates update with the caller id, name and dto', async () => {
+    const dto = { availability: 'high' } as UpdateShopDto;
+    await controller.update(user, 'shop-x', dto);
+    expect(service.update).toHaveBeenCalledWith('user-1', 'shop-x', dto);
   });
 
   it('delegates delete scoped to the caller', async () => {

@@ -103,6 +103,9 @@ export class ShopsService {
   ): Promise<ShopView> {
     const shop = await this.getOwned(userId, name);
     shop.spec = shop.spec ?? {};
+    // getOwned() only returns shops whose metadata.labels matched, so metadata
+    // is always present here — the fallback is purely defensive.
+    /* istanbul ignore next */
     shop.metadata = shop.metadata ?? {};
     shop.metadata.annotations = shop.metadata.annotations ?? {};
 
