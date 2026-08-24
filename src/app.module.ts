@@ -4,6 +4,7 @@ import { validationSchema } from './config/env.validation';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { KubernetesModule } from './kubernetes/kubernetes.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { ShopsModule } from './shops/shops.module';
 
 @Module({
@@ -15,6 +16,7 @@ import { ShopsModule } from './shops/shops.module';
     AuthModule,
     HealthModule,
     KubernetesModule,
+    MetricsModule,
     ShopsModule,
   ],
 })

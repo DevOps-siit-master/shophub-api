@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { HttpMetricsMiddleware } from './metrics/http-metrics.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,6 +15,11 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Registered before the router so it counts every request — including
+  // guard-rejected (401/403) and unmatched (404) ones (spec 4.1).
+  const httpMetrics = app.get(HttpMetricsMiddleware);
+  app.use(httpMetrics.use.bind(httpMetrics));
 
   const configService = app.get(ConfigService);
 
